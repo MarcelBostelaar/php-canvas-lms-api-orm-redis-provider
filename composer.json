@@ -20,7 +20,8 @@
         }
     ],
     "require": {
-        "canvasapilibrary/orm": "dev-main"
+        "canvasapilibrary/orm": "dev-main",
+        "predis/predis": "^3.3"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.1"
