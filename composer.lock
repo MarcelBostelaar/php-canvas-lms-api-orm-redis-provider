@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "724dbc371cd92e984cd6a04dd41a0991",
+    "content-hash": "6ea8c646e3e9dce556eacd9961fbc176",
     "packages": [
         {
             "name": "canvasapilibrary/orm",
@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm.git",
-                "reference": "a9ee47d8fbef6eff4fa07e005845dcab87d92aba"
+                "reference": "79f3c0567be4642ffad59a23c0f612f3a68f8945"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/MarcelBostelaar/php-canvas-lms-api-orm/zipball/a9ee47d8fbef6eff4fa07e005845dcab87d92aba",
-                "reference": "a9ee47d8fbef6eff4fa07e005845dcab87d92aba",
+                "url": "https://api.github.com/repos/MarcelBostelaar/php-canvas-lms-api-orm/zipball/79f3c0567be4642ffad59a23c0f612f3a68f8945",
+                "reference": "79f3c0567be4642ffad59a23c0f612f3a68f8945",
                 "shasum": ""
             },
             "require": {
@@ -58,10 +58,64 @@
                 "source": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm/tree/main",
                 "issues": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm/issues"
             },
-            "time": "2025-12-27T13:19:38+00:00"
+            "time": "2025-12-27T13:52:51+00:00"
         }
     ],
-    "packages-dev": [],
+    "packages-dev": [
+        {
+            "name": "phpstan/phpstan",
+            "version": "2.1.33",
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/9e800e6bee7d5bd02784d4c6069b48032d16224f",
+                "reference": "9e800e6bee7d5bd02784d4c6069b48032d16224f",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.4|^8.0"
+            },
+            "conflict": {
+                "phpstan/phpstan-shim": "*"
+            },
+            "bin": [
+                "phpstan",
+                "phpstan.phar"
+            ],
+            "type": "library",
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "PHPStan - PHP Static Analysis Tool",
+            "keywords": [
+                "dev",
+                "static analysis"
+            ],
+            "support": {
+                "docs": "https://phpstan.org/user-guide/getting-started",
+                "forum": "https://github.com/phpstan/phpstan/discussions",
+                "issues": "https://github.com/phpstan/phpstan/issues",
+                "security": "https://github.com/phpstan/phpstan/security/policy",
+                "source": "https://github.com/phpstan/phpstan-src"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/ondrejmirtes",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/phpstan",
+                    "type": "github"
+                }
+            ],
+            "time": "2025-12-05T10:24:31+00:00"
+        }
+    ],
     "aliases": [],
     "minimum-stability": "stable",
     "stability-flags": {
