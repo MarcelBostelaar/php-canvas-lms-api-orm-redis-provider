@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm.git",
-                "reference": "84cb150e8a1df47196b8ebcc717de5b6594bdcb6"
+                "reference": "27567866fec0d4549e31fc03cae75355526c5998"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/MarcelBostelaar/php-canvas-lms-api-orm/zipball/84cb150e8a1df47196b8ebcc717de5b6594bdcb6",
-                "reference": "84cb150e8a1df47196b8ebcc717de5b6594bdcb6",
+                "url": "https://api.github.com/repos/MarcelBostelaar/php-canvas-lms-api-orm/zipball/27567866fec0d4549e31fc03cae75355526c5998",
+                "reference": "27567866fec0d4549e31fc03cae75355526c5998",
                 "shasum": ""
             },
             "require": {
@@ -58,7 +58,7 @@
                 "source": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm/tree/main",
                 "issues": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm/issues"
             },
-            "time": "2025-12-27T14:00:03+00:00"
+            "time": "2025-12-27T15:42:40+00:00"
         },
         {
             "name": "predis/predis",

@@ -110,4 +110,25 @@ class PermissionHandler implements PermissionsHandlerInterface{
         return "global";
     }
     
+    public static function filterPermissionsToContext(mixed $contextFilter, array $permissions): array{
+        if(!$contextFilter[-1] === '*'){
+            throw new \InvalidArgumentException("Context filter must end with a wildcard '*'");
+        }
+        $base = substr($contextFilter, 0, -1);
+        $semicoloncount = substr_count($base, ';');
+        $filtered = [];
+        foreach($permissions as $perm){
+            if(str_starts_with($perm, $base) && substr_count($perm, ';') === $semicoloncount){
+                $filtered[] = $perm;
+            }
+        }
+        return $filtered;
+    }
+
+    public static function typeFromPermission(mixed $permission): string{
+        $parts = explode(';', $permission);
+        //return all uneven parts joined by semicolon
+        $filtered = array_filter($parts, fn($k) => $k % 2 === 0, ARRAY_FILTER_USE_KEY);
+        return implode(';', $filtered);
+    }
 }

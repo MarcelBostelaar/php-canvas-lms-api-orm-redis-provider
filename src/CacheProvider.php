@@ -42,7 +42,7 @@ class CacheProvider implements CacheProviderInterface{
         $permsKey = $this->permsKey($itemKey);
         $backpropTypesKey = $this->backpropTypesKey($itemKey);
 
-        $permTypes = array_map([$this, 'permissionType'], $permissionsRequired);
+        $permTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissionsRequired);
 
         $this->redis->set($valueKey, $serialized);
         if ($ttl > 0) {
@@ -111,6 +111,10 @@ class CacheProvider implements CacheProviderInterface{
      * Results are saved through dominance matching of permission types.
      * Must save child items to cache first.
      * 
+     * Each collection is stored as a variant.
+     * Multiple different subsets may exist for the same collection key (one per client with different permissions).
+     * Each variant stores items and the client's permissions filtered to the context.
+     * 
      * Assumes client has all the permissions possible to the given collection, this is the responsibility of the user of this library
      * 
      * Client bound cache operation.
@@ -118,30 +122,37 @@ class CacheProvider implements CacheProviderInterface{
      * @param string $collectionKey The key by which the collection is to be stored.
      * @param array $itemKeys The list of item keys which belong to this collection.
      * @param int $ttl Time to keep in cache in seconds.
-     * @param ContextFilter[] $itemPermissionContextFilter Allowed context filters for this collection. Any collection may only have ONE filter of any TYPE. 
-     * Adding a filter of the same type of a different context throws an exception.
+     * @param ContextFilter $itemPermissionContextFilter The context filter for this collection.
      * @return void
      */
-    public function setCollection(string $clientID, string $collectionKey, array $itemKeys, int $ttl, mixed ...$itemPermissionContextFilters){
-        $itemsKey = $this->collectionItemsKey($collectionKey);
-        $filtersKey = $this->collectionFiltersKey($collectionKey);
+    public function setCollection(string $clientID, string $collectionKey, array $itemKeys, int $ttl, mixed $itemPermissionContextFilter){
+        //Unique id per call
+        $variantID = $this->generateVariantID();
+        $itemsKey = $this->collectionItemsKeyForVariant($collectionKey, $variantID);//todo inline
+        $permsKey = $this->collectionPermsKeyForVariant($collectionKey, $variantID);//todo inline
+        $countKey = $this->collectionVariantCountKey($collectionKey, $variantID);//todo inline
 
-        if (!empty($itemPermissionContextFilters)) {
-            $this->assertUniqueContextFilters($filtersKey, $itemPermissionContextFilters);
-        }
+        $filterKey = $this->collectionFilterKey($collectionKey);
+        //Set of all variants keys
+        $variantsSetKey = $this->collectionVariantsSetKey($collectionKey);
 
         if (!empty($itemKeys)) {
             $this->redis->sadd($itemsKey, $itemKeys);
         }
 
-        foreach ($itemPermissionContextFilters as $filter) {
-            $type = $this->contextFilterType($filter);
-            $this->redis->hset($filtersKey, $type, $filter);
-        }
+        $this->redis->set($filterKey, $itemPermissionContextFilter);
+        $this->redis->sadd($variantsSetKey, [$variantID]);
+
+        $this->saveKnownPermissionsInContext($permsKey, $clientID, $itemPermissionContextFilter);
+        
+        $permsCount = $this->redis->scard($permsKey);
+        $this->redis->set($countKey, (string)$permsCount);
 
         if ($ttl > 0) {
             $this->redis->expire($itemsKey, $ttl);
-            $this->redis->expire($filtersKey, $ttl);
+            $this->redis->expire($permsKey, $ttl);
+            $this->redis->expire($countKey, $ttl);
+            //filter key is shared, do not expire. Assume user does not provide conflicting filters for the same collection.
         }
     }
 
@@ -166,6 +177,7 @@ class CacheProvider implements CacheProviderInterface{
      * @return void
      */
     public function setBackpropagation(string $collectionKey, mixed $permissionType, string $target){
+        //TODO reimplement in lua for performance, wrong implementation currently
         $itemsKey = $this->collectionItemsKey($collectionKey);
         $itemKeys = $this->redis->smembers($itemsKey);
 
@@ -180,6 +192,7 @@ class CacheProvider implements CacheProviderInterface{
      * @return void
      */
     public function setPermissionUnion(string ...$keys){
+        //TODO reimplement in lua for performance
         $uniqueKeys = array_values(array_unique($keys));
 
         foreach ($uniqueKeys as $source) {
@@ -197,20 +210,10 @@ class CacheProvider implements CacheProviderInterface{
      * Tries to retrieve a cached collection items for this client. 
      * If successfull, returns an array of the actual items.
      * 
-     * Finding cache hits is done through dominance matching, then filtering.
-     * 
-     * Collections can only have one context filter per permission type. 
-     * IE, a collection (and its items) in canvas can only belong to 1 course, in addition to globally in 1 domain.
-     * All collections have a filter to which subgroup they belong to. 
-     * IE, an item that is bound to a user can be accessed through a domain-user permission token,
-     * or a domain-course-user token.
-     * 
-     * The caching wrapper carries responsibility for ensuring all permissions that can be known of a client are known in the relevant context.
-     * 
-     * Then, within a context, if the client's permissions in that context are a subset of the known permissions in that collection,
-     * then the collection can be returned through a filter. This also works for items which can be accessed through several context types, 
-     * but not for items accesible through multiple competing contexts of the same type. For the latter case (such as users),
-     * seperate collections must be set up per context, such as a seperate collection for all users in a course.
+     * Finding cache hits is done through dominance matching across variants.
+     * For each stored variant, checks if the client's filtered permissions are a subset.
+     * If found, returns items filtered to the client's actual permissions.
+     * Variants are checked largest-to-smallest (by permission count) for best match.
      * 
      * Client bound cache operation.
      * @param string $clientID Id by which to identify this client.
@@ -219,15 +222,29 @@ class CacheProvider implements CacheProviderInterface{
      * Miss (empty) otherwise.
      */
     public function getCollection(string $clientID, string $collectionKey): CacheResult{
-                $values = $this->evalGetCollection($clientID, $collectionKey);
+        $clientPermsKey = $this->clientPermsKey($clientID);
+        
+        $result = $this->evalGetCollectionVariants($clientID, $collectionKey, $clientPermsKey);
+        
+        if ($result === null || !is_array($result)) {
+            return new CacheResult(null, false);
+        }
 
-                if ($values === null) {
-                        return new CacheResult(null, false);
-                }
+        $items = array_map('unserialize', $result);
+        return new CacheResult($items, true);
+    }
 
-                $items = array_map('unserialize', $values);
-
-                return new CacheResult($items, true);
+    /**
+     * @param string $permsKey
+     * @param string $clientID
+     * @param string $type
+     */
+    private function saveKnownPermissionsInContext(string $permsKey, string $clientID, string $contextFilter): void{
+        $clientPermsKey = $this->clientPermsKey($clientID);
+        $clientPerms = $this->redis->smembers($clientPermsKey);
+        
+        $filteredPerms = $this->permissionHandler::filterPermissionsToContext($contextFilter, $clientPerms);
+        $this->redis->sadd($permsKey, $filteredPerms);
     }
 
     /**
@@ -284,31 +301,25 @@ class CacheProvider implements CacheProviderInterface{
     }
 
     /**
+     * Evaluates all collection variants for dominance matching.
+     * Finds the best matching variant where client's filtered perms are a subset.
      * @return string[]|null
      */
-    private function evalGetCollection(string $clientID, string $collectionKey): ?array{
-        $clientPermsKey = $this->clientPermsKey($clientID);
-        $itemsKey = $this->collectionItemsKey($collectionKey);
-        $filtersKey = $this->collectionFiltersKey($collectionKey);
-
-        $values = $this->redis->evalsha(
-                $this->scriptShas['getCollection'],
-                3,
-                $clientPermsKey,
-                $itemsKey,
-                $filtersKey,
-                self::ITEM_PREFIX
+    private function evalGetCollectionVariants(string $clientID, string $collectionKey, string $clientPermsKey): ?array{
+        $result = $this->redis->evalsha(
+            $this->scriptShas['getCollectionVariants'],
+            2,
+            $clientPermsKey,
+            $collectionKey,
+            self::ITEM_PREFIX,
+            self::COLLECTION_PREFIX
         );
 
-        if ($values === null) {
-                return null;
+        if ($result === null || !is_array($result)) {
+            return null;
         }
 
-        if (!is_array($values)) {
-                return null;
-        }
-
-        return array_values($values);
+        return array_values($result);
     }
 
     private function addBackpropTarget(string $itemKey, string $type, string $target): void{
@@ -317,21 +328,6 @@ class CacheProvider implements CacheProviderInterface{
 
         $this->redis->sadd($typesKey, [$type]);
         $this->redis->sadd($targetsKey, [$target]);
-    }
-
-    /**
-     * @param string $filtersKey
-     * @param string[] $filters
-     */
-    private function assertUniqueContextFilters(string $filtersKey, array $filters): void{
-            $existing = $this->redis->hgetall($filtersKey);
-
-            foreach ($filters as $filter) {
-                    $type = $this->contextFilterType($filter);
-                    if (isset($existing[$type]) && $existing[$type] !== $filter) {
-                            throw new InvalidArgumentException('Duplicate context filter type with different context: ' . $type);
-                    }
-            }
     }
 
     private function valueKey(string $itemKey): string{
@@ -355,58 +351,41 @@ class CacheProvider implements CacheProviderInterface{
     }
 
     private function collectionItemsKey(string $collectionKey): string{
-            return self::COLLECTION_PREFIX . $collectionKey . ':items';
+        return self::COLLECTION_PREFIX . $collectionKey . ':items';
     }
 
-    private function collectionFiltersKey(string $collectionKey): string{
-            return self::COLLECTION_PREFIX . $collectionKey . ':filters';
+    private function collectionVariantsSetKey(string $collectionKey): string{
+        return self::COLLECTION_PREFIX . $collectionKey . ':variants';
     }
 
-    private function permissionType(string $permission): string{
-            return $this->typeFromToken($permission);
+    private function collectionItemsKeyForVariant(string $collectionKey, string $variantID): string{
+        return self::COLLECTION_PREFIX . $collectionKey . ':' . $variantID . ':items';
     }
 
-    private function contextFilterType(string $filter): string{
-            return $this->typeFromToken($filter);
+    private function collectionFilterKey(string $collectionKey): string{
+        return self::COLLECTION_PREFIX . $collectionKey . ':filter';
     }
 
-    private function typeFromToken(string $token): string{
-            if ($token === '') {
-                    return '';
-            }
+    private function collectionPermsKeyForVariant(string $collectionKey, string $variantID): string{
+        return self::COLLECTION_PREFIX . $collectionKey . ':' . $variantID . ':perms';
+    }
 
-            if (str_starts_with($token, 'global')) {
-                    return 'global';
-            }
+    private function collectionVariantCountKey(string $collectionKey, string $variantID): string{
+        return self::COLLECTION_PREFIX . $collectionKey . ':' . $variantID . ':count';
+    }
 
-            $parts = explode(';', $token);
-            $typeParts = [];
-
-            $count = count($parts);
-            for ($i = 0; $i < $count; $i += 2) {
-                    $label = $parts[$i] ?? '';
-                    if ($label === '' || $label === '*') {
-                            break;
-                    }
-
-                    $typeParts[] = $label;
-
-                    $nextIndex = $i + 1;
-                    $valuePart = $parts[$nextIndex] ?? '';
-                    if ($valuePart === '*' || $valuePart === '') {
-                            break;
-                    }
-            }
-
-            return implode(';', $typeParts);
+    private function generateVariantID(): string{
+        return \uniqid('var_', true);
     }
 
     private function loadLuaScripts(): void{
-            $this->scriptShas['addPermsBackprop'] = $this->redis->script('load', $this->luaAddPermsBackprop());
-            $this->scriptShas['getIfPermitted'] = $this->redis->script('load', $this->luaGetIfPermitted());
-            $this->scriptShas['getCollection'] = $this->redis->script('load', $this->luaGetCollection());
+        $this->scriptShas['addPermsBackprop'] = $this->redis->script('load', $this->luaAddPermsBackprop());
+        $this->scriptShas['getIfPermitted'] = $this->redis->script('load', $this->luaGetIfPermitted());
+        $this->scriptShas['getCollection'] = $this->redis->script('load', $this->luaGetCollection());
+        $this->scriptShas['getCollectionDominance'] = $this->redis->script('load', $this->luaGetCollectionDominance());
+        $this->scriptShas['getCollectionVariants'] = $this->redis->script('load', $this->luaGetCollectionVariants());
     }
-
+//TODO check lua scripts for correctness
         private function luaAddPermsBackprop(): string{
                 return <<<LUA
 local rootItemKey = ARGV[1]
@@ -543,6 +522,165 @@ for _, itemKey in ipairs(items) do
 end
 
 return results
+LUA;
+        }
+
+        private function luaGetCollectionDominance(): string{
+                return <<<LUA
+local clientPermsKey = KEYS[1]
+local itemsKey = KEYS[2]
+local collectionPermsKey = KEYS[3]
+local itemPrefix = ARGV[1]
+
+local clientPerms = redis.call('SMEMBERS', clientPermsKey)
+if #clientPerms == 0 then
+    return {}
+end
+
+local knownPerms = redis.call('SMEMBERS', collectionPermsKey)
+
+local function isSubset(clientPerms, knownPerms)
+    for _, clientPerm in ipairs(clientPerms) do
+        local found = false
+        for _, knownPerm in ipairs(knownPerms) do
+            if clientPerm == knownPerm then
+                found = true
+                break
+            end
+        end
+        if not found then
+            return false
+        end
+    end
+    return true
+end
+
+if not isSubset(clientPerms, knownPerms) then
+    return {}
+end
+
+local items = redis.call('SMEMBERS', itemsKey)
+local results = {}
+
+for _, itemKey in ipairs(items) do
+    local valueKey = itemPrefix .. itemKey .. ':value'
+    local v = redis.call('GET', valueKey)
+    if v then
+        table.insert(results, v)
+    end
+end
+
+return results
+LUA;
+        }
+
+        private function luaGetCollectionVariants(): string{
+                return <<<LUA
+local clientPermsKey = KEYS[1]
+local collectionKey = KEYS[2]
+local itemPrefix = ARGV[1]
+local collPrefix = ARGV[2]
+
+local clientPerms = redis.call('SMEMBERS', clientPermsKey)
+if #clientPerms == 0 then
+    return {}
+end
+
+local variantsSetKey = collPrefix .. collectionKey .. ':variants'
+local variants = redis.call('SMEMBERS', variantsSetKey)
+
+if #variants == 0 then
+    return {}
+end
+
+-- Sort variants by permission count (largest first)
+local variantData = {}
+for _, variantID in ipairs(variants) do
+    local countKey = collPrefix .. collectionKey .. ':' .. variantID .. ':count'
+    local count = tonumber(redis.call('GET', countKey) or '-1')
+    if count >= 0 then --Expired variants will be skipped
+        table.insert(variantData, {id = variantID, count = count})
+    end
+end
+
+table.sort(variantData, function(a, b) return a.count > b.count end)
+
+-- Check each variant in order (largest first)
+for _, variant in ipairs(variantData) do
+    local variantID = variant.id
+    local variantPermsKey = collPrefix .. collectionKey .. ':' .. variantID .. ':perms'
+    local variantItemsKey = collPrefix .. collectionKey .. ':' .. variantID .. ':items'
+    
+    local variantPerms = redis.call('SMEMBERS', variantPermsKey)
+    
+    -- Check if clientPerms is subset of variantPerms
+    local isSubset = true
+    for _, clientPerm in ipairs(clientPerms) do
+        local found = false
+        for _, variantPerm in ipairs(variantPerms) do
+            if clientPerm == variantPerm then
+                found = true
+                break
+            end
+        end
+        if not found then
+            isSubset = false
+            break
+        end
+    end
+    
+    -- If clientPerms is superset (not subset and all variant perms in client), skip
+    if not isSubset then
+        local isSupersetOrDisjoint = true
+        for _, variantPerm in ipairs(variantPerms) do
+            local found = false
+            for _, clientPerm in ipairs(clientPerms) do
+                if variantPerm == clientPerm then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                isSupersetOrDisjoint = false
+                break
+            end
+        end
+        
+        if isSupersetOrDisjoint and #variantPerms > 0 then
+            goto continue
+        end
+    end
+    
+    -- If we reach here and not subset, it's disjoint, try next
+    if not isSubset then
+        goto continue
+    end
+    
+    -- clientPerms is subset of variantPerms, return items filtered to client perms
+    local variantItems = redis.call('SMEMBERS', variantItemsKey)
+    local results = {}
+    
+    for _, itemKey in ipairs(variantItems) do
+        local itemPermsKey = itemPrefix .. itemKey .. ':perms'
+        local itemValueKey = itemPrefix .. itemKey .. ':value'
+        
+        local inter = redis.call('SINTER', itemPermsKey, clientPermsKey)
+        if #inter > 0 then
+            local v = redis.call('GET', itemValueKey)
+            if v then
+                table.insert(results, v)
+            end
+        end
+    end
+    
+    if #results > 0 then
+        return results
+    end
+    
+    ::continue::
+end
+
+return {}
 LUA;
         }
 }
