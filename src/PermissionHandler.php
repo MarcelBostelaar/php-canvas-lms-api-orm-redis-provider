@@ -14,180 +14,100 @@ use CanvasApiLibrary\Core\Models\UserStub;
  * @implements PermissionsHandlerInterface<Permission, ContextFilter, PermissionType>
  */
 class PermissionHandler implements PermissionsHandlerInterface{
-    
     /**
-     * Returns only those permissions that exist in the same context as the given filter.
-     * Ie, student-bound items exist in the context of a domain name and course id. 
-     * This method returns only those permissions which are for that same context, 
-     * ie all other permissions to see students in that course on that domain.
-     * @param ContextFilter $context A context filter
-     * @param Permission[] $permissions Permissions to filter
-     * @return Permission[] Filtered permissions
-     */
-    public static function filterOnContext(mixed $context, array $permissions): array{
-        //TODO
-    }
-
-    /**
-     * Filters a given list of permissions to only those of a certain type
-     * @param PermissionType $contextType The context type to filter on.
-     * @param Permission[] $permissions The permissions to filter
-     * @return Permission[] Filtered permissions
-     */
-    public static function filterOnType(mixed $contextType, array $permissions) : array{
-        //TODO
-    }
-
-    /**
-     * Summary of contextFrom
-     * @param PermissionType $permission
-     * @return ContextFilter
-     */
-    public static function contextFrom(mixed $permission): string{
-        //TODO
-        
-    }
-
-    /**
-     * Summary of contextFilterDomainCourseUser
      * @param CourseStub $course
      * @return ContextFilter
      */
     public static function contextFilterDomainCourseUser(CourseStub $course): string{
-        //TODO
-        
+        return "domain;{$course->domain->domain};course;{$course->id};user;*";
     }
 
     /**
-     * Summary of contextFilterDomainCourse
      * @param CourseStub $course
      * @return ContextFilter
      */
     public static function contextFilterDomainCourse(CourseStub $course): string{
-        //TODO
-        
+        return "domain;{$course->domain->domain};course;{$course->id};*";
     }
 
     /**
-     * Summary of contextFilterDomainUser
      * @param Domain $domain
      * @return ContextFilter
      */
     public static function contextFilterDomainUser(Domain $domain): string{
-        //TODO
-        
+        return "domain;{$domain->domain};user;*";
     }
 
     /**
-     * Summary of contextFilterDomain
      * @param Domain $domain
      * @return ContextFilter
      */
     public static function contextFilterDomain(Domain $domain): string{
-        //TODO
-        
+        return "domain;{$domain->domain};*";
     }
 
     /**
-     * Summary of domainPermission
      * @param Domain $domain
      * @return Permission
      */
     public static function domainPermission(Domain $domain): string{
-        //TODO
-        
+        return "domain;{$domain->domain}";
     }
     
     /**
-     * Summary of domainCoursePermission
      * @param CourseStub $course
      * @return Permission
      */
     public static function domainCoursePermission(CourseStub $course): string{
-        //TODO
-        
+        return "domain;{$course->domain->domain};course;{$course->id}";
     }
 
     /**
-     * Summary of domainUserPermission
      * @param UserStub $user
      * @return Permission
      */
     public static function domainUserPermission(UserStub $user): string{
-        //TODO
-        
+        return "domain;{$user->domain->domain};user;{$user->id}";
     }
 
     /**
-     * Summary of domainCourseUserPermission
      * @param CourseStub $course
      * @param UserStub $user
      * @return Permission
      */
     public static function domainCourseUserPermission(CourseStub $course, UserStub $user): string{
-        //TODO
-        
+        return "domain;{$course->domain->domain};course;{$course->id};user;{$user->id}";
     }
 
     /**
-     * Summary of typeFromPermission
-     * @param string $permission
-     * @return PermissionType
-     */
-    public static function typeFromPermission(mixed $permission) : string{
-        //TODO
-        
-    }
-
-    /**
-     * Summary of typeFromContextFilter
-     * @param string $contextFilter
-     * @return PermissionType
-     */
-    public static function typeFromContextFilter(mixed $contextFilter) : string{
-        //TODO
-        
-    }
-
-    /**
-     * Summary of domainType
      * @return PermissionType
      */
     public static function domainType(): string{
-        //TODO
-        
+        return "domain";
     }
     /**
-     * Summary of domainCourseType
      * @return PermissionType
      */
     public static function domainCourseType(): string{
-        //TODO
-        
+        return "domain;course";
     }
     /**
-     * Summary of domainCourseUserType
      * @return PermissionType
      */
     public static function domainCourseUserType(): string{
-        //TODO
-        
+        return "domain;course;user";
     }
     /**
-     * Summary of domainUserType
      * @return PermissionType
      */
     public static function domainUserType(): string{
-        //TODO
-        
+        return "domain;user";
     }
     /**
-     * Summary of globalType
      * @return PermissionType
      */
     public static function globalType(): string{
-        //TODO
-        
+        return "global";
     }
     
 }
