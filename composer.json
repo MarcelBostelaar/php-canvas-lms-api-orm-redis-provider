@@ -1,0 +1,25 @@
+{
+    "name": "canvasapilibrary/redis-cache-provider",
+    "description": "A redis implementation of the cache provider interface for the canvas api library",
+    "type": "library",
+    "autoload": {
+        "psr-4": {
+            "Canvasapilibrary\\RedisCacheProvider\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Marcel Bostelaar",
+            "email": "marcel.bostelaar@gmail.com"
+        }
+    ],
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "git@github.com:MarcelBostelaar/php-canvas-lms-api-orm.git"
+        }
+    ],
+    "require": {
+        "canvasapilibrary/orm": "dev-main"
+    }
+}

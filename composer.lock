@@ -1,0 +1,75 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "724dbc371cd92e984cd6a04dd41a0991",
+    "packages": [
+        {
+            "name": "canvasapilibrary/orm",
+            "version": "dev-main",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm.git",
+                "reference": "a9ee47d8fbef6eff4fa07e005845dcab87d92aba"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/MarcelBostelaar/php-canvas-lms-api-orm/zipball/a9ee47d8fbef6eff4fa07e005845dcab87d92aba",
+                "reference": "a9ee47d8fbef6eff4fa07e005845dcab87d92aba",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.2"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "*"
+            },
+            "default-branch": true,
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "CanvasApiLibrary\\Core\\": "/src/Core/",
+                    "CanvasApiLibrary\\Caching\\": "/src/Caching/",
+                    "CanvasApiLibrary\\Core\\Providers\\Interfaces\\": [
+                        "src/Core/Providers/Generated/Interfaces",
+                        "src/Core/Providers/Generated/Wrappers"
+                    ],
+                    "CanvasApiLibrary\\Core\\Providers\\": [
+                        "src/Core/Providers/",
+                        "src/Core/Providers/Utility/"
+                    ]
+                },
+                "classmap": [
+                    "src/Core/Providers/Utility/ModelPopulator/"
+                ]
+            },
+            "scripts": {
+                "serve": [
+                    "php -S localhost:8000 test.php"
+                ]
+            },
+            "license": [
+                "All-rights-reserved"
+            ],
+            "description": "A PHP library that provides an ORM for the Canvas LMS API",
+            "support": {
+                "source": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm/tree/main",
+                "issues": "https://github.com/MarcelBostelaar/php-canvas-lms-api-orm/issues"
+            },
+            "time": "2025-12-27T13:19:38+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {
+        "canvasapilibrary/orm": 20
+    },
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {},
+    "platform-dev": {},
+    "plugin-api-version": "2.9.0"
+}
