@@ -14,16 +14,15 @@ use Predis\Client;
  * @implements CacheProviderInterface<Permission, ContextFilter, PermissionType>
  */
 class CacheProvider implements CacheProviderInterface{
-    private const ITEM_PREFIX = 'item:';
-    private const CLIENT_PREFIX = 'client:';
-    private const COLLECTION_PREFIX = 'collection:';
-    private const BACKPROP_UNION_TYPE = 'union';
 
-    /** @var array<string,string> */
-    private array $scriptShas = [];
+    private Lua\AddPermissionBackpropagation $addPermissionBackpropagationScript;
+    private Lua\GetIfPermitted $getIfPermittedScript;
+    private Lua\GetCollectionVariants $getCollectionVariantsScript;
 
     public function __construct(private readonly Client $redis, private readonly PermissionHandler $permissionHandler){
-        $this->loadLuaScripts();
+        $this->addPermissionBackpropagationScript = new Lua\AddPermissionBackpropagation($this->redis);
+        $this->getIfPermittedScript = new Lua\GetIfPermitted($this->redis);
+        $this->getCollectionVariantsScript = new Lua\GetCollectionVariants($this->redis);
     }
     /**
      * Sets the value of an item in the cache
@@ -38,8 +37,8 @@ class CacheProvider implements CacheProviderInterface{
     public function set(string $itemKey, mixed $value, int $ttl, string $clientID, mixed ...$permissionsRequired){
         $serialized = serialize($value);
 
-        $valueKey = $this->valueKey($itemKey);
-        $permsKey = $this->permsKey($itemKey);
+        $valueKey = Utility::valueKey($itemKey);
+        $permsKey = Utility::permsKey($itemKey);
 
         $permTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissionsRequired);
 
@@ -48,7 +47,7 @@ class CacheProvider implements CacheProviderInterface{
             $this->redis->expire($valueKey, $ttl);
         }
 
-        $this->evalAddPermissionsWithBackprop($itemKey, $permissionsRequired, $permTypes);
+        $this->addPermissionBackpropagationScript->run($itemKey, $permissionsRequired, $permTypes);
 
         if ($ttl > 0) {
             $this->redis->expire($permsKey, $ttl);
@@ -63,7 +62,7 @@ class CacheProvider implements CacheProviderInterface{
      * @return CacheResult
      */
     public function get(string $clientID, string $key) : CacheResult{
-        $result = $this->evalGetIfPermitted($clientID, $key);
+        $result = $this->getIfPermittedScript->run($clientID, $key);
 
         if ($result === null) {
             return new CacheResult(null, false);
@@ -78,7 +77,7 @@ class CacheProvider implements CacheProviderInterface{
      * @return CacheResult
      */
     public function getUnprotected(string $key) : CacheResult{
-        $value = $this->redis->get($this->valueKey($key));
+        $value = $this->redis->get(Utility::valueKey($key));
 
         if ($value === null) {
             return new CacheResult(null, false);
@@ -96,7 +95,7 @@ class CacheProvider implements CacheProviderInterface{
      */
     public function setUnprotected(string $key, mixed $value, int $ttl) : void{
         $serialized = serialize($value);
-        $valueKey = $this->valueKey($key);
+        $valueKey = Utility::valueKey($key);
 
         $this->redis->set($valueKey, $serialized);
         if ($ttl > 0) {
@@ -126,15 +125,14 @@ class CacheProvider implements CacheProviderInterface{
      */
     public function setCollection(string $clientID, string $collectionKey, array $itemKeys, int $ttl, mixed $itemPermissionContextFilter){
         //Unique id per call
-        $variantID = $this->generateVariantID();
-        $itemsKey = $this->collectionItemsKeyForVariant($collectionKey, $variantID);
-        $permsKey = $this->collectionPermsKeyForVariant($collectionKey, $variantID);
-        $countKey = $this->collectionVariantCountKey($collectionKey, $variantID);
+        $variantID = Utility::generateVariantID();
+        $itemsKey = Utility::collectionItemsKeyForVariant($collectionKey, $variantID);
+        $permsKey = Utility::collectionPermsKeyForVariant($collectionKey, $variantID);
+        $countKey = Utility::collectionVariantCountKey($collectionKey, $variantID);
 
-        $filterKey = $this->collectionFilterKey($collectionKey);
+        $filterKey = Utility::collectionFilterKey($collectionKey);
         //Set of all variants keys
-        $variantsSetKey = $this->collectionVariantsSetKey($collectionKey);
-
+        $variantsSetKey = Utility::collectionVariantsSetKey($collectionKey);
         if (!empty($itemKeys)) {
             $this->redis->sadd($itemsKey, $itemKeys);
         }
@@ -176,7 +174,7 @@ class CacheProvider implements CacheProviderInterface{
      * @return void
      */
     public function setBackpropagation(string $collectionKey, mixed $permissionType, string $target){
-        $redisCollectionKey = $this->collectionKey($collectionKey);
+        $redisCollectionKey = Utility::collectionKey($collectionKey);
         $itemKeys = $this->redis->smembers($redisCollectionKey);
 
         foreach ($itemKeys as $itemKey) {
@@ -197,7 +195,7 @@ class CacheProvider implements CacheProviderInterface{
                 if ($source === $target) {
                     continue;
                 }
-                $this->addBackpropTarget($source, self::BACKPROP_UNION_TYPE, $target);
+                $this->addBackpropTarget($source, Utility::BACKPROP_UNION_TYPE, $target);
             }
         }
     }
@@ -219,9 +217,9 @@ class CacheProvider implements CacheProviderInterface{
      * Miss (empty) otherwise.
      */
     public function getCollection(string $clientID, string $collectionKey): CacheResult{
-        $clientPermsKey = $this->clientPermsKey($clientID);
+        $clientPermsKey = Utility::clientPermsKey($clientID);
         
-        $result = $this->evalGetCollectionVariants($clientID, $collectionKey, $clientPermsKey);
+        $result = $this->getCollectionVariantsScript->run($collectionKey, $clientPermsKey);
         
         if ($result === null || !is_array($result)) {
             return new CacheResult(null, false);
@@ -237,142 +235,15 @@ class CacheProvider implements CacheProviderInterface{
      * @param string $type
      */
     private function saveKnownPermissionsInContext(string $permsKey, string $clientID, string $contextFilter): void{
-        $clientPermsKey = $this->clientPermsKey($clientID);
+        $clientPermsKey = Utility::clientPermsKey($clientID);
         $clientPerms = $this->redis->smembers($clientPermsKey);
         
         $filteredPerms = $this->permissionHandler::filterPermissionsToContext($contextFilter, $clientPerms);
         $this->redis->sadd($permsKey, $filteredPerms);
     }
 
-    /**
-     * Runs the Lua script that adds permissions to an item and propagates them along typed backprop targets.
-     * @param string[] $permissions
-     * @param string[] $permissionTypes
-     */
-    private function evalAddPermissionsWithBackprop(string $itemKey, array $permissions, array $permissionTypes): void{
-        $permCount = count($permissions);
-        if ($permCount === 0) {
-                return;
-        }
-
-        $args = [];
-        $args[] = $itemKey;
-        $args[] = (string)$permCount;
-        foreach ($permissions as $perm) {
-                $args[] = (string)$perm;
-        }
-        foreach ($permissionTypes as $type) {
-                $args[] = (string)$type;
-        }
-        $args[] = self::ITEM_PREFIX;
-
-        $this->redis->evalsha(
-                $this->scriptShas['addPermsBackprop'],
-                0,
-                ...$args
-        );
-    }
-
-    private function evalGetIfPermitted(string $clientID, string $itemKey): mixed{
-        $clientPermsKey = $this->clientPermsKey($clientID);
-        $itemPermsKey = $this->permsKey($itemKey);
-        $itemValueKey = $this->valueKey($itemKey);
-
-        $result = $this->redis->evalsha(
-                $this->scriptShas['getIfPermitted'],
-                3,
-                $clientPermsKey,
-                $itemPermsKey,
-                $itemValueKey
-        );
-
-        if (!is_array($result) || count($result) !== 2) {
-                return null;
-        }
-
-        $authorized = (bool)$result[0];
-        $value = $result[1];
-
-        return $authorized ? $value : null;
-    }
-
-    /**
-     * Evaluates all collection variants for dominance matching.
-     * Finds the best matching variant where client's filtered perms are a subset.
-     * @return string[]|null
-     */
-    private function evalGetCollectionVariants(string $clientID, string $collectionKey, string $clientPermsKey): ?array{
-        $result = $this->redis->evalsha(
-            $this->scriptShas['getCollectionVariants'],
-            2,
-            $clientPermsKey,
-            $collectionKey,
-            self::ITEM_PREFIX,
-            self::COLLECTION_PREFIX
-        );
-
-        if ($result === null || !is_array($result)) {
-            return null;
-        }
-
-        return array_values($result);
-    }
-
     private function addBackpropTarget(string $itemKey, string $type, string $target): void{
-        $targetCollectionKey = $this->backpropTargetCollectionKey($itemKey, $type);
+        $targetCollectionKey = Utility::backpropTargetCollectionKey($itemKey, $type);
         $this->redis->sadd($targetCollectionKey, [$target]);
     }
-
-    private function valueKey(string $itemKey): string{
-            return self::ITEM_PREFIX . $itemKey . ':value';
-    }
-
-    private function permsKey(string $itemKey): string{
-            return self::ITEM_PREFIX . $itemKey . ':perms';
-    }
-
-    private function backpropTargetCollectionKey(string $itemKey, string $type): string{
-            return self::ITEM_PREFIX . $itemKey . ':backprop:' . $type;
-    }
-
-    private function clientPermsKey(string $clientID): string{
-            return self::CLIENT_PREFIX . $clientID . ':perms';
-    }
-
-    private function collectionKey(string $collectionKey): string{
-        return self::COLLECTION_PREFIX . $collectionKey . ':items';
-    }
-
-    private function collectionVariantsSetKey(string $collectionKey): string{
-        return self::COLLECTION_PREFIX . $collectionKey . ':variants';
-    }
-
-    private function collectionItemsKeyForVariant(string $collectionKey, string $variantID): string{
-        return self::COLLECTION_PREFIX . $collectionKey . ':' . $variantID . ':items';
-    }
-
-    private function collectionFilterKey(string $collectionKey): string{
-        return self::COLLECTION_PREFIX . $collectionKey . ':filter';
-    }
-
-    private function collectionPermsKeyForVariant(string $collectionKey, string $variantID): string{
-        return self::COLLECTION_PREFIX . $collectionKey . ':' . $variantID . ':perms';
-    }
-
-    private function collectionVariantCountKey(string $collectionKey, string $variantID): string{
-        return self::COLLECTION_PREFIX . $collectionKey . ':' . $variantID . ':count';
-    }
-
-    private function generateVariantID(): string{
-        return \uniqid('var_', true);
-    }
-
-    private function loadLuaScripts(): void{
-        $this->scriptShas['addPermsBackprop'] = $this->redis->script('load', Lua\AddPermissionBackpropagation::script());
-        $this->scriptShas['getIfPermitted'] = $this->redis->script('load', Lua\GetIfPermitted::script());
-        $this->scriptShas['getCollection'] = $this->redis->script('load', Lua\GetCollection::script());
-        $this->scriptShas['getCollectionDominance'] = $this->redis->script('load', Lua\GetCollectionDominance::script());
-        $this->scriptShas['getCollectionVariants'] = $this->redis->script('load', Lua\GetCollectionVariants::script());
-    }
-//TODO check lua scripts for correctness
 }

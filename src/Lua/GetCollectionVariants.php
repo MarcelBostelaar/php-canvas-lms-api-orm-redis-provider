@@ -1,8 +1,30 @@
 <?php
 
 namespace CanvasApiLibrary\RedisCacheProvider\Lua;
+use CanvasApiLibrary\RedisCacheProvider\Utility;
 
-class GetCollectionVariants{
+class GetCollectionVariants extends AbstractScript{
+    /**
+     * Evaluates all collection variants for dominance matching.
+     * Finds the best matching variant where client's filtered perms are a subset.
+     * @return string[]|null
+     */
+    public function run(string $collectionKey, string $clientPermsKey): ?array{
+        $result = $this->redis->evalsha(
+            $this->scriptSha,
+            2,
+            $clientPermsKey,
+            $collectionKey,
+            Utility::ITEM_PREFIX,
+            Utility::COLLECTION_PREFIX
+        );
+
+        if ($result === null || !is_array($result)) {
+            return null;
+        }
+
+        return array_values($result);
+    }
     public static function script(): string{
                 return <<<LUA
 local clientPermsKey = KEYS[1]

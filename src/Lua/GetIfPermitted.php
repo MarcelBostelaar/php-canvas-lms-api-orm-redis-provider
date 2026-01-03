@@ -1,8 +1,33 @@
 <?php
 
 namespace CanvasApiLibrary\RedisCacheProvider\Lua;
+use CanvasApiLibrary\RedisCacheProvider\Utility;
 
-class GetIfPermitted{
+class GetIfPermitted extends AbstractScript{
+
+    public function run(string $clientID, string $itemKey): mixed{
+        $clientPermsKey = Utility::clientPermsKey($clientID);
+        $itemPermsKey = Utility::permsKey($itemKey);
+        $itemValueKey = Utility::valueKey($itemKey);
+
+        $result = $this->redis->evalsha(
+                $this->scriptSha,
+                3,
+                $clientPermsKey,
+                $itemPermsKey,
+                $itemValueKey
+        );
+
+        if (!is_array($result) || count($result) !== 2) {
+                return null;
+        }
+
+        $authorized = (bool)$result[0];
+        $value = $result[1];
+
+        return $authorized ? $value : null;
+    }
+    
     public static function script(): string{
                 return <<<LUA
 local clientPermsKey = KEYS[1]

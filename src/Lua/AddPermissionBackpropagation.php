@@ -2,7 +2,40 @@
 
 namespace CanvasApiLibrary\RedisCacheProvider\Lua;
 
-class AddPermissionBackpropagation{
+use CanvasApiLibrary\RedisCacheProvider\Utility;
+
+class AddPermissionBackpropagation extends AbstractScript{
+
+    /**
+     * Runs the Lua script that adds permissions to an item and propagates them along typed backprop targets.
+     * @param string[] $permissions
+     * @param string[] $permissionTypes
+     */
+    public function run(string $itemKey, array $permissions, array $permissionTypes): void{
+        $permCount = count($permissions);
+        if ($permCount === 0) {
+                return;
+        }
+
+        $args = [];
+        $args[] = $itemKey;
+        $args[] = (string)$permCount;
+        foreach ($permissions as $perm) {
+                $args[] = (string)$perm;
+        }
+        foreach ($permissionTypes as $type) {
+                $args[] = (string)$type;
+        }
+        $args[] = Utility::ITEM_PREFIX;
+
+        $this->redis->evalsha(
+                $this->scriptSha,
+                0,
+                ...$args
+        );
+    }
+
+
     public static function script(): string{
                 return <<<LUA
 local rootItemKey = ARGV[1]
