@@ -40,7 +40,6 @@ class CacheProvider implements CacheProviderInterface{
 
         $valueKey = $this->valueKey($itemKey);
         $permsKey = $this->permsKey($itemKey);
-        $backpropTypesKey = $this->backpropTypesKey($itemKey);
 
         $permTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissionsRequired);
 
@@ -49,7 +48,7 @@ class CacheProvider implements CacheProviderInterface{
             $this->redis->expire($valueKey, $ttl);
         }
 
-        $this->evalAddPermissionsWithBackprop($itemKey, $permissionsRequired, $permTypes, $backpropTypesKey);
+        $this->evalAddPermissionsWithBackprop($itemKey, $permissionsRequired, $permTypes);
 
         if ($ttl > 0) {
             $this->redis->expire($permsKey, $ttl);
@@ -128,9 +127,9 @@ class CacheProvider implements CacheProviderInterface{
     public function setCollection(string $clientID, string $collectionKey, array $itemKeys, int $ttl, mixed $itemPermissionContextFilter){
         //Unique id per call
         $variantID = $this->generateVariantID();
-        $itemsKey = $this->collectionItemsKeyForVariant($collectionKey, $variantID);//todo inline
-        $permsKey = $this->collectionPermsKeyForVariant($collectionKey, $variantID);//todo inline
-        $countKey = $this->collectionVariantCountKey($collectionKey, $variantID);//todo inline
+        $itemsKey = $this->collectionItemsKeyForVariant($collectionKey, $variantID);
+        $permsKey = $this->collectionPermsKeyForVariant($collectionKey, $variantID);
+        $countKey = $this->collectionVariantCountKey($collectionKey, $variantID);
 
         $filterKey = $this->collectionFilterKey($collectionKey);
         //Set of all variants keys
@@ -177,9 +176,8 @@ class CacheProvider implements CacheProviderInterface{
      * @return void
      */
     public function setBackpropagation(string $collectionKey, mixed $permissionType, string $target){
-        //TODO reimplement in lua for performance, wrong implementation currently
-        $itemsKey = $this->collectionItemsKey($collectionKey);
-        $itemKeys = $this->redis->smembers($itemsKey);
+        $redisCollectionKey = $this->collectionKey($collectionKey);
+        $itemKeys = $this->redis->smembers($redisCollectionKey);
 
         foreach ($itemKeys as $itemKey) {
             $this->addBackpropTarget($itemKey, (string)$permissionType, $target);
@@ -192,7 +190,6 @@ class CacheProvider implements CacheProviderInterface{
      * @return void
      */
     public function setPermissionUnion(string ...$keys){
-        //TODO reimplement in lua for performance
         $uniqueKeys = array_values(array_unique($keys));
 
         foreach ($uniqueKeys as $source) {
@@ -252,8 +249,7 @@ class CacheProvider implements CacheProviderInterface{
      * @param string[] $permissions
      * @param string[] $permissionTypes
      */
-    private function evalAddPermissionsWithBackprop(string $itemKey, array $permissions, array $permissionTypes, string $backpropTypesKey): void{
-        //TODO backpropTypesKey is unused?
+    private function evalAddPermissionsWithBackprop(string $itemKey, array $permissions, array $permissionTypes): void{
         $permCount = count($permissions);
         if ($permCount === 0) {
                 return;
@@ -323,11 +319,8 @@ class CacheProvider implements CacheProviderInterface{
     }
 
     private function addBackpropTarget(string $itemKey, string $type, string $target): void{
-        $typesKey = $this->backpropTypesKey($itemKey);
-        $targetsKey = $this->backpropTargetsKey($itemKey, $type);
-
-        $this->redis->sadd($typesKey, [$type]);
-        $this->redis->sadd($targetsKey, [$target]);
+        $targetCollectionKey = $this->backpropTargetCollectionKey($itemKey, $type);
+        $this->redis->sadd($targetCollectionKey, [$target]);
     }
 
     private function valueKey(string $itemKey): string{
@@ -338,11 +331,7 @@ class CacheProvider implements CacheProviderInterface{
             return self::ITEM_PREFIX . $itemKey . ':perms';
     }
 
-    private function backpropTypesKey(string $itemKey): string{
-            return self::ITEM_PREFIX . $itemKey . ':backprop:types';
-    }
-
-    private function backpropTargetsKey(string $itemKey, string $type): string{
+    private function backpropTargetCollectionKey(string $itemKey, string $type): string{
             return self::ITEM_PREFIX . $itemKey . ':backprop:' . $type;
     }
 
@@ -350,7 +339,7 @@ class CacheProvider implements CacheProviderInterface{
             return self::CLIENT_PREFIX . $clientID . ':perms';
     }
 
-    private function collectionItemsKey(string $collectionKey): string{
+    private function collectionKey(string $collectionKey): string{
         return self::COLLECTION_PREFIX . $collectionKey . ':items';
     }
 
@@ -431,13 +420,17 @@ while #queue > 0 do
         redis.call('SADD', pk, perms[i])
     end
 
-    local tKey = backpropTypesKey(itemKey)
-    local bpTypes = redis.call('SMEMBERS', tKey)
+    -- Find all backprop target keys using pattern matching
+    local pattern = itemPrefix .. itemKey .. ':backprop:*'
+    local backpropKeys = redis.call('KEYS', pattern)
 
-    for _, t in ipairs(bpTypes) do
-        --For each target, check which permissions to propagate
-
-        local targetsKey = backpropTargetsKey(itemKey, t)
+    for _, targetsKey in ipairs(backpropKeys) do
+        -- Extract type from key (format: itemPrefix..itemKey..':backprop:'..type)
+        local t = string.match(targetsKey, ':backprop:(.+)$')
+        if not t then
+            goto continue_backprop
+        end
+        
         local targets = redis.call('SMEMBERS', targetsKey)
 
         local shouldPropagate = {}
@@ -467,6 +460,8 @@ while #queue > 0 do
                 end
             end
         end
+        
+        ::continue_backprop::
     end
 end
 
