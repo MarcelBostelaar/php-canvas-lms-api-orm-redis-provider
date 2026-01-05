@@ -7,9 +7,9 @@ class GetCollectionVariants extends AbstractScript{
     /**
      * Evaluates all collection variants for dominance matching.
      * Finds the best matching variant where client's filtered perms are a subset.
-     * @return string[]|null
+     * @return array{0, null}|array{1, array<string>} 0 and null if no matching variant found, 1 and array of item values if found.
      */
-    public function run(string $collectionKey, string $clientPermsKey): ?array{
+    public function run(string $collectionKey, string $clientPermsKey): array{
         $result = $this->redis->evalsha(
             $this->scriptSha,
             2,
@@ -19,29 +19,41 @@ class GetCollectionVariants extends AbstractScript{
             Utility::COLLECTION_PREFIX
         );
 
-        if ($result === null || !is_array($result)) {
-            return null;
+        if ($result[0] === 0) {
+            return [0, null];
         }
 
-        return array_values($result);
+        return [1, array_values($result)];
     }
     public static function script(): string{
+        //TODO is missing filtering of client permissions based on the collection filter.
                 return <<<LUA
 local clientPermsKey = KEYS[1]
 local collectionKey = KEYS[2]
 local itemPrefix = ARGV[1]
 local collPrefix = ARGV[2]
+local collectionFilterKey = collPrefix .. collectionKey .. ':filter'
+local collectionFilter = redis.call('SMEMBERS', collectionFilterKey)
+
+function isSubset(subset, supersetKey)
+    local areMembers = redis.call('SMEMBERS', supersetKey, subset)
+    --check if all are integer 1
+    for i in areMembers do
+        if areMembers[i] == 0 then
+            return false
+        end
+    end
+    return true
+end
 
 local clientPerms = redis.call('SMEMBERS', clientPermsKey)
-if #clientPerms == 0 then
-    return {}
-end
+--Do not catch client without permissions, there may be public items.
 
 local variantsSetKey = collPrefix .. collectionKey .. ':variants'
 local variants = redis.call('SMEMBERS', variantsSetKey)
 
-if #variants == 0 then
-    return {}
+if #variants == 0 then -- No variants exist, return 0 as result indicator
+    return 0, {}
 end
 
 -- Sort variants by permission count (largest first)
@@ -65,45 +77,8 @@ for _, variant in ipairs(variantData) do
     local variantPerms = redis.call('SMEMBERS', variantPermsKey)
     
     -- Check if clientPerms is subset of variantPerms
-    local isSubset = true
-    for _, clientPerm in ipairs(clientPerms) do
-        local found = false
-        for _, variantPerm in ipairs(variantPerms) do
-            if clientPerm == variantPerm then
-                found = true
-                break
-            end
-        end
-        if not found then
-            isSubset = false
-            break
-        end
-    end
-    
-    -- If clientPerms is superset (not subset and all variant perms in client), skip
-    if not isSubset then
-        local isSupersetOrDisjoint = true
-        for _, variantPerm in ipairs(variantPerms) do
-            local found = false
-            for _, clientPerm in ipairs(clientPerms) do
-                if variantPerm == clientPerm then
-                    found = true
-                    break
-                end
-            end
-            if not found then
-                isSupersetOrDisjoint = false
-                break
-            end
-        end
-        
-        if isSupersetOrDisjoint and #variantPerms > 0 then
-            goto continue
-        end
-    end
-    
-    -- If we reach here and not subset, it's disjoint, try next
-    if not isSubset then
+    local isSubset = isSubset(clientPerms, variantPermsKey)
+    if(isSubset) then
         goto continue
     end
     
@@ -120,18 +95,19 @@ for _, variant in ipairs(variantData) do
             local v = redis.call('GET', itemValueKey)
             if v then
                 table.insert(results, v)
+            else
+                -- Item has no value, collection is stale, go to next variant
+                goto continue
             end
         end
     end
     
-    if #results > 0 then
-        return results
-    end
+    return 1, results
     
     ::continue::
 end
 
-return {}
+return 0, {}
 LUA;
         }
 }

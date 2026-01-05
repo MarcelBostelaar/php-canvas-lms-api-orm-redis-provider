@@ -15,12 +15,12 @@ use Predis\Client;
  */
 class CacheProvider implements CacheProviderInterface{
 
-    private Lua\AddPermissionBackpropagation $addPermissionBackpropagationScript;
+    private Lua\AddPermissionThenBackpropagation $addPermissionBackpropagationScript;
     private Lua\GetIfPermitted $getIfPermittedScript;
     private Lua\GetCollectionVariants $getCollectionVariantsScript;
 
     public function __construct(private readonly Client $redis, private readonly PermissionHandler $permissionHandler){
-        $this->addPermissionBackpropagationScript = new Lua\AddPermissionBackpropagation($this->redis);
+        $this->addPermissionBackpropagationScript = new Lua\AddPermissionThenBackpropagation($this->redis, $this->permissionHandler);
         $this->getIfPermittedScript = new Lua\GetIfPermitted($this->redis);
         $this->getCollectionVariantsScript = new Lua\GetCollectionVariants($this->redis);
     }
@@ -40,14 +40,12 @@ class CacheProvider implements CacheProviderInterface{
         $valueKey = Utility::valueKey($itemKey);
         $permsKey = Utility::permsKey($itemKey);
 
-        $permTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissionsRequired);
-
         $this->redis->set($valueKey, $serialized);
         if ($ttl > 0) {
             $this->redis->expire($valueKey, $ttl);
         }
 
-        $this->addPermissionBackpropagationScript->run($itemKey, $permissionsRequired, $permTypes);
+        $this->addPermissionBackpropagationScript->run($itemKey, $permissionsRequired, $clientID);
 
         if ($ttl > 0) {
             $this->redis->expire($permsKey, $ttl);
@@ -221,11 +219,11 @@ class CacheProvider implements CacheProviderInterface{
         
         $result = $this->getCollectionVariantsScript->run($collectionKey, $clientPermsKey);
         
-        if ($result === null || !is_array($result)) {
+        if ($result[0] === 0) {
             return new CacheResult(null, false);
         }
 
-        $items = array_map('unserialize', $result);
+        $items = array_map('unserialize', $result[1]);
         return new CacheResult($items, true);
     }
 

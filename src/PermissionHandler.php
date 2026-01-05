@@ -19,15 +19,18 @@ class PermissionHandler implements PermissionsHandlerInterface{
      * @return ContextFilter
      */
     public static function contextFilterDomainCourseUser(CourseStub $course): string{
-        return "domain;{$course->domain->domain};course;{$course->id};user;*";
+        $escapedDomain = addcslashes($course->domain->domain, '\\*?[]');
+        return "domain;{$escapedDomain};course;{$course->id};user;[0-9]*";
     }
-
+//TODO check of alle filters kloppen. Moet domain bv filteren op 1 domain of alle domains?
+//Anders ff namen in interface aanpassen voor duidelijkheid.
     /**
      * @param CourseStub $course
      * @return ContextFilter
      */
     public static function contextFilterDomainCourse(CourseStub $course): string{
-        return "domain;{$course->domain->domain};course;{$course->id};*";
+        $escapedDomain = addcslashes($course->domain->domain, '\\*?[]');
+        return "domain;{$escapedDomain};course;{$course->id}";
     }
 
     /**
@@ -35,7 +38,8 @@ class PermissionHandler implements PermissionsHandlerInterface{
      * @return ContextFilter
      */
     public static function contextFilterDomainUser(Domain $domain): string{
-        return "domain;{$domain->domain};user;*";
+        $escapedDomain = addcslashes($domain->domain, '\\*?[]');
+        return "domain;{$escapedDomain};user;[0-9]*";
     }
 
     /**
@@ -43,7 +47,8 @@ class PermissionHandler implements PermissionsHandlerInterface{
      * @return ContextFilter
      */
     public static function contextFilterDomain(Domain $domain): string{
-        return "domain;{$domain->domain};*";
+        $escapedDomain = addcslashes($domain->domain, '\\*?[]');
+            return "domain;{$escapedDomain}";
     }
 
     /**

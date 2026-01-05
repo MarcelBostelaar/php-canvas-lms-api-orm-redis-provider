@@ -2,16 +2,24 @@
 
 namespace CanvasApiLibrary\RedisCacheProvider\Lua;
 
+use CanvasApiLibrary\Caching\AccessAware\Interfaces\PermissionsHandlerInterface;
 use CanvasApiLibrary\RedisCacheProvider\Utility;
+use Predis\Client;
 
-class AddPermissionBackpropagation extends AbstractScript{
+class AddPermissionThenBackpropagation extends AbstractScript{
+
+    public function __construct(Client $redis, readonly PermissionsHandlerInterface $permissionHandler) {
+        parent::__construct($redis);
+    }
 
     /**
      * Runs the Lua script that adds permissions to an item and propagates them along typed backprop targets.
      * @param string[] $permissions
      * @param string[] $permissionTypes
      */
-    public function run(string $itemKey, array $permissions, array $permissionTypes): void{
+    public function run(string $itemKey, array $permissions, string $clientID): void{
+        //TODO modify script to add given permissions to client as well.
+        $permissionTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissions);
         $permCount = count($permissions);
         if ($permCount === 0) {
                 return;
@@ -49,9 +57,6 @@ Args: string rootItemKey, int permCount, string permissions[0...permCount], stri
 
 for i = 1, permCount do
     perms[i] = ARGV[2 + i]
-end
-
-for i = 1, permCount do
     types[i] = ARGV[2 + permCount + i]
 end
 
@@ -87,8 +92,8 @@ while #queue > 0 do
 
     for _, targetsKey in ipairs(backpropKeys) do
         -- Extract type from key (format: itemPrefix..itemKey..':backprop:'..type)
-        local t = string.match(targetsKey, ':backprop:(.+)$')
-        if not t then
+        local backpropagationType = string.match(targetsKey, ':backprop:(.+)$')
+        if not backpropagationType then
             goto continue_backprop
         end
         
@@ -96,13 +101,13 @@ while #queue > 0 do
 
         local shouldPropagate = {}
 
-        if t == 'union' then
+        if backpropagationType == 'union' then
             for i = 1, permCount do
                 shouldPropagate[i] = true
             end
         else
             for i = 1, permCount do
-                if types[i] == t then
+                if types[i] == backpropagationType then
                     shouldPropagate[i] = true
                 end
             end
