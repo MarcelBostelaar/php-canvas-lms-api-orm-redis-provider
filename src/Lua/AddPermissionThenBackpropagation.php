@@ -19,6 +19,7 @@ class AddPermissionThenBackpropagation extends AbstractScript{
      */
     public function run(string $itemKey, array $permissions, string $clientID): void{
         //TODO modify script to add given permissions to client as well.
+        //TODO rewrite to use type as pattern to match the key
         $permissionTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissions);
         $permCount = count($permissions);
         if ($permCount === 0) {
@@ -66,14 +67,6 @@ local function permsKey(itemKey)
     return itemPrefix .. itemKey .. ':perms'
 end
 
-local function backpropTypesKey(itemKey)
-    return itemPrefix .. itemKey .. ':backprop:types'
-end
-
-local function backpropTargetsKey(itemKey, t)
-    return itemPrefix .. itemKey .. ':backprop:' .. t
-end
-
 local queue = {rootItemKey}
 local visited = {}
 visited[rootItemKey] = true
@@ -82,9 +75,7 @@ while #queue > 0 do
     local itemKey = table.remove(queue)
 
     local pk = permsKey(itemKey)
-    for i = 1, permCount do
-        redis.call('SADD', pk, perms[i])
-    end
+    redis.call('SADD', pk, unpack(perms))
 
     -- Find all backprop target keys using pattern matching
     local pattern = itemPrefix .. itemKey .. ':backprop:*'
@@ -94,22 +85,17 @@ while #queue > 0 do
         -- Extract type from key (format: itemPrefix..itemKey..':backprop:'..type)
         local backpropagationType = string.match(targetsKey, ':backprop:(.+)$')
         if not backpropagationType then
-            goto continue_backprop
+            --Invalid key format, crash
+            return redis.error_reply("Invalid backprop key format: " .. targetsKey)
         end
         
         local targets = redis.call('SMEMBERS', targetsKey)
 
-        local shouldPropagate = {}
+        local permsToPropagate = {}
 
-        if backpropagationType == 'union' then
-            for i = 1, permCount do
-                shouldPropagate[i] = true
-            end
-        else
-            for i = 1, permCount do
-                if types[i] == backpropagationType then
-                    shouldPropagate[i] = true
-                end
+        for i = 1, permCount do
+            if string.match(perms[i], backpropagationType) then
+                table.insert(permsToPropagate, perms[i])
             end
         end
 
@@ -120,11 +106,7 @@ while #queue > 0 do
             end
 
             local targetPermsKey = permsKey(target)
-            for i = 1, permCount do
-                if shouldPropagate[i] then
-                    redis.call('SADD', targetPermsKey, perms[i])
-                end
-            end
+            redis.call('SADD', targetPermsKey, unpack(permsToPropagate))
         end
         
         ::continue_backprop::

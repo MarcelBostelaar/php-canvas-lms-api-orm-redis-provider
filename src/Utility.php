@@ -7,7 +7,6 @@ class Utility{
     public const ITEM_PREFIX = 'item:';
     public const CLIENT_PREFIX = 'client:';
     public const COLLECTION_PREFIX = 'collection:';
-    public const BACKPROP_UNION_TYPE = 'union';
 
     public static function valueKey(string $itemKey): string{
             return self::ITEM_PREFIX . $itemKey . ':value';

@@ -18,11 +18,13 @@ class CacheProvider implements CacheProviderInterface{
     private Lua\AddPermissionThenBackpropagation $addPermissionBackpropagationScript;
     private Lua\GetIfPermitted $getIfPermittedScript;
     private Lua\GetCollectionVariants $getCollectionVariantsScript;
+    private Lua\SaveFilteredKnownClientPermissionsToKey $saveFilteredKnownClientPermissionsScript;
 
     public function __construct(private readonly Client $redis, private readonly PermissionHandler $permissionHandler){
         $this->addPermissionBackpropagationScript = new Lua\AddPermissionThenBackpropagation($this->redis, $this->permissionHandler);
         $this->getIfPermittedScript = new Lua\GetIfPermitted($this->redis);
         $this->getCollectionVariantsScript = new Lua\GetCollectionVariants($this->redis);
+        $this->saveFilteredKnownClientPermissionsScript = new Lua\SaveFilteredKnownClientPermissionsToKey($this->redis, $this->permissionHandler);
     }
     /**
      * Sets the value of an item in the cache
@@ -138,7 +140,7 @@ class CacheProvider implements CacheProviderInterface{
         $this->redis->set($filterKey, $itemPermissionContextFilter);
         $this->redis->sadd($variantsSetKey, [$variantID]);
 
-        $this->saveKnownPermissionsInContext($permsKey, $clientID, $itemPermissionContextFilter);
+        $this->saveFilteredKnownClientPermissionsScript->run($permsKey, $clientID, $itemPermissionContextFilter);
         
         $permsCount = $this->redis->scard($permsKey);
         $this->redis->set($countKey, (string)$permsCount);
@@ -193,7 +195,7 @@ class CacheProvider implements CacheProviderInterface{
                 if ($source === $target) {
                     continue;
                 }
-                $this->addBackpropTarget($source, Utility::BACKPROP_UNION_TYPE, $target);
+                $this->addBackpropTarget($source, PermissionHandler::everyPermissionTypePattern(), $target);
             }
         }
     }
@@ -225,19 +227,6 @@ class CacheProvider implements CacheProviderInterface{
 
         $items = array_map('unserialize', $result[1]);
         return new CacheResult($items, true);
-    }
-
-    /**
-     * @param string $permsKey
-     * @param string $clientID
-     * @param string $type
-     */
-    private function saveKnownPermissionsInContext(string $permsKey, string $clientID, string $contextFilter): void{
-        $clientPermsKey = Utility::clientPermsKey($clientID);
-        $clientPerms = $this->redis->smembers($clientPermsKey);
-        
-        $filteredPerms = $this->permissionHandler::filterPermissionsToContext($contextFilter, $clientPerms);
-        $this->redis->sadd($permsKey, $filteredPerms);
     }
 
     private function addBackpropTarget(string $itemKey, string $type, string $target): void{

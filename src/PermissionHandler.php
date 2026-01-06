@@ -14,49 +14,28 @@ use CanvasApiLibrary\Core\Models\UserStub;
  * @implements PermissionsHandlerInterface<Permission, ContextFilter, PermissionType>
  */
 class PermissionHandler implements PermissionsHandlerInterface{
+    private static function domainHash(Domain $domain): string{
+        return hash('sha256', $domain->domain);
+    }
+
     /**
+     * Lua pattern to match a specific domain and course, with any user
      * @param CourseStub $course
      * @return ContextFilter
      */
-    public static function contextFilterDomainCourseUser(CourseStub $course): string{
-        $escapedDomain = addcslashes($course->domain->domain, '\\*?[]');
-        return "domain;{$escapedDomain};course;{$course->id};user;[0-9]*";
-    }
-//TODO check of alle filters kloppen. Moet domain bv filteren op 1 domain of alle domains?
-//Anders ff namen in interface aanpassen voor duidelijkheid.
-    /**
-     * @param CourseStub $course
-     * @return ContextFilter
-     */
-    public static function contextFilterDomainCourse(CourseStub $course): string{
-        $escapedDomain = addcslashes($course->domain->domain, '\\*?[]');
-        return "domain;{$escapedDomain};course;{$course->id}";
+    public static function contextFilterDomainCourseAnyUser(CourseStub $course): string{
+        $escapedDomain = self::domainHash($course->domain);
+        return "domain;{$escapedDomain};course;{$course->id};user;%d+$";
     }
 
     /**
+     * Lua pattern to match a specific domain with any user
      * @param Domain $domain
      * @return ContextFilter
      */
-    public static function contextFilterDomainUser(Domain $domain): string{
-        $escapedDomain = addcslashes($domain->domain, '\\*?[]');
-        return "domain;{$escapedDomain};user;[0-9]*";
-    }
-
-    /**
-     * @param Domain $domain
-     * @return ContextFilter
-     */
-    public static function contextFilterDomain(Domain $domain): string{
-        $escapedDomain = addcslashes($domain->domain, '\\*?[]');
-            return "domain;{$escapedDomain}";
-    }
-
-    /**
-     * @param Domain $domain
-     * @return Permission
-     */
-    public static function domainPermission(Domain $domain): string{
-        return "domain;{$domain->domain}";
+    public static function contextFilterDomainAnyUser(Domain $domain): string{
+        $escapedDomain = self::domainHash($domain);
+        return "domain;{$escapedDomain};user;%d+$";
     }
     
     /**
@@ -85,55 +64,39 @@ class PermissionHandler implements PermissionsHandlerInterface{
     }
 
     /**
-     * @return PermissionType
-     */
-    public static function domainType(): string{
-        return "domain";
-    }
-    /**
+     * Lua pattern for matching Domain-Course permissions
      * @return PermissionType
      */
     public static function domainCourseType(): string{
-        return "domain;course";
+        return "domain;%w+;course;%d+$";
     }
     /**
+     * Lua pattern for matching Domain-Course-User permissions
      * @return PermissionType
      */
     public static function domainCourseUserType(): string{
-        return "domain;course;user";
+        return "domain;%w+;course;%d+;user;%d+$";
     }
     /**
+     * Lua pattern for matching Domain-User permissions
      * @return PermissionType
      */
     public static function domainUserType(): string{
-        return "domain;user";
-    }
-    /**
-     * @return PermissionType
-     */
-    public static function globalType(): string{
-        return "global";
-    }
-    
-    public static function filterPermissionsToContext(mixed $contextFilter, array $permissions): array{
-        if(!$contextFilter[-1] === '*'){
-            throw new \InvalidArgumentException("Context filter must end with a wildcard '*'");
-        }
-        $base = substr($contextFilter, 0, -1);
-        $semicoloncount = substr_count($base, ';');
-        $filtered = [];
-        foreach($permissions as $perm){
-            if(str_starts_with($perm, $base) && substr_count($perm, ';') === $semicoloncount){
-                $filtered[] = $perm;
-            }
-        }
-        return $filtered;
+        return "domain;%w+;user;%d+$";
     }
 
-    public static function typeFromPermission(mixed $permission): string{
-        $parts = explode(';', $permission);
-        //return all uneven parts joined by semicolon
-        $filtered = array_filter($parts, fn($k) => $k % 2 === 0, ARRAY_FILTER_USE_KEY);
-        return implode(';', $filtered);
+    /**
+     * Lua pattern that matches all permission types including personal ones.
+     * Used for item unions.
+     * @return string
+     */
+    public static function everyPermissionTypePattern(): string{
+        return ".+$";
+    }
+
+    public static function clientPermission(string $clientID): string{
+        //hash the clientID to avoid any special character issues
+        $clientHash = hash('sha256', $clientID);
+        return "client;{$clientHash}";
     }
 }
