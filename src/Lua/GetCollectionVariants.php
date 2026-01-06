@@ -25,7 +25,7 @@ class GetCollectionVariants extends AbstractScript{
 
         return [1, array_values($result)];
     }
-    public static function script(): string{
+    protected static function script(): string{
                 return <<<LUA
 local clientPermsKey = KEYS[1]
 local collectionKey = KEYS[2]
@@ -49,7 +49,7 @@ local clientPerms = redis.call('SMEMBERS', clientPermsKey)
 --Do not catch client without permissions, there may be public items.
 
 --Filter clientPerms based on collection filter
-if #collectionFilter != 1 then
+if #collectionFilter ~= 1 then
     --Should not have 0 or more than 1 filter, throw error
     return redis.error_reply('Invalid amount of collection filters found for '  .. collectionKey .. ' : ' .. #collectionFilter .. ' filters, must be 1.')
 end
@@ -82,6 +82,7 @@ table.sort(variantData, function(a, b) return a.count > b.count end)
 
 -- Check each variant in order (largest first)
 for _, variant in ipairs(variantData) do
+    local skipThisVariant = false
     local variantID = variant.id
     local variantPermsKey = collPrefix .. collectionKey .. ':' .. variantID .. ':perms'
     local variantItemsKey = collPrefix .. collectionKey .. ':' .. variantID .. ':items'
@@ -90,33 +91,33 @@ for _, variant in ipairs(variantData) do
     
     -- Check if clientPerms is subset of variantPerms
     local isSubset = isSubset(filteredClientPerms, variantPermsKey)
-    if(isSubset) then
-        goto continue
-    end
-    
-    -- clientPerms is subset of variantPerms, return items filtered to client perms
-    local variantItems = redis.call('SMEMBERS', variantItemsKey)
-    local results = {}
-    
-    for _, itemKey in ipairs(variantItems) do
-        local itemPermsKey = itemPrefix .. itemKey .. ':perms'
-        local itemValueKey = itemPrefix .. itemKey .. ':value'
+    if not isSubset then
+        skipThisVariant = true
+    else
+        -- clientPerms is subset of variantPerms, return items filtered to client perms
+        local variantItems = redis.call('SMEMBERS', variantItemsKey)
+        local results = {}
         
-        local inter = redis.call('SINTER', itemPermsKey, clientPermsKey)
-        if #inter > 0 then
-            local v = redis.call('GET', itemValueKey)
-            if v then
-                table.insert(results, v)
-            else
-                -- Item has no value, collection is stale, go to next variant
-                goto continue
+        for _, itemKey in ipairs(variantItems) do
+            local itemPermsKey = itemPrefix .. itemKey .. ':perms'
+            local itemValueKey = itemPrefix .. itemKey .. ':value'
+            
+            local inter = redis.call('SINTER', itemPermsKey, clientPermsKey)
+            if #inter > 0 then
+                local v = redis.call('GET', itemValueKey)
+                if v then
+                    table.insert(results, v)
+                else
+                    -- Item has no value, collection is stale, go to next variant
+                    skipThisVariant = true
+                end
             end
         end
     end
-    
-    return 1, results
-    
-    ::continue::
+
+    if not skipThisVariant then
+        return 1, results
+    end
 end
 
 return 0, {}

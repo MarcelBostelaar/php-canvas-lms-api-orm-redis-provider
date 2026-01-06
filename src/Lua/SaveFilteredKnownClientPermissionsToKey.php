@@ -22,7 +22,7 @@ class SaveFilteredKnownClientPermissionsToKey extends AbstractScript{
         $clientPermsKey = Utility::clientPermsKey($clientID);
 
         $this->redis->evalsha(
-            self::$scriptSha,
+            $this->scriptSha,
             2,
             $clientPermsKey,
             $permissionsKey,
@@ -31,7 +31,7 @@ class SaveFilteredKnownClientPermissionsToKey extends AbstractScript{
     }
 
 
-    public static function script(): string{
+    protected static function script(): string{
         return <<<LUA
 local clientPermsKey = KEYS[1]
 local permsKey = KEYS[2]

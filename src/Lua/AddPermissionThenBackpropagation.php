@@ -23,23 +23,18 @@ class AddPermissionThenBackpropagation extends AbstractScript{
                 return;
         }
 
-        $args = [];
-        foreach ($permissions as $perm) {
-                $args[] = (string)$perm;
-        }
-
         $this->redis->evalsha(
                 $this->scriptSha,
                 3,
                 Utility::ITEM_PREFIX,
                 $itemKey,
                 $clientPermsKey,
-                ...$args
+                ...$permissions
         );
     }
 
 
-    public static function script(): string{
+    protected static function script(): string{
                 return <<<LUA
 local itemPrefix = KEYS[1]
 local rootItemKey = KEYS[2]
@@ -65,7 +60,9 @@ while #queue > 0 do
     local itemKey = table.remove(queue)
 
     local pk = permsKey(itemKey)
-    redis.call('SADD', pk, unpack(perms))
+    if #perms > 0 then
+        redis.call('SADD', pk, unpack(perms))
+    end
 
     -- Find all backprop target keys using pattern matching
     local pattern = itemPrefix .. itemKey .. ':backprop:*'
@@ -95,11 +92,11 @@ while #queue > 0 do
                 table.insert(queue, target)
             end
 
-            local targetPermsKey = permsKey(target)
-            redis.call('SADD', targetPermsKey, unpack(permsToPropagate))
+            if #permsToPropagate > 0 then
+                local targetPermsKey = permsKey(target)
+                redis.call('SADD', targetPermsKey, unpack(permsToPropagate))
+            end
         end
-        
-        ::continue_backprop::
     end
 end
 

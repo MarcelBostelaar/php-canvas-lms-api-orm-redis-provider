@@ -77,6 +77,10 @@ class CacheProvider implements CacheProviderInterface{
      * @return CacheResult
      */
     public function getUnprotected(string $key) : CacheResult{
+        $permKey = Utility::permsKey($key);
+        if ($this->redis->exists($permKey)) {
+            return new CacheResult(null, false);
+        }
         $value = $this->redis->get(Utility::valueKey($key));
 
         if ($value === null) {

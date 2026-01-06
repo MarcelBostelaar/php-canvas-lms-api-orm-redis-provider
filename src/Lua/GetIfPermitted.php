@@ -28,7 +28,7 @@ class GetIfPermitted extends AbstractScript{
         return $authorized ? $value : null;
     }
     
-    public static function script(): string{
+    protected static function script(): string{
                 return <<<LUA
 local clientPermsKey = KEYS[1]
 local itemPermsKey = KEYS[2]
