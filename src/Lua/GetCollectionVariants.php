@@ -26,7 +26,6 @@ class GetCollectionVariants extends AbstractScript{
         return [1, array_values($result)];
     }
     public static function script(): string{
-        //TODO is missing filtering of client permissions based on the collection filter.
                 return <<<LUA
 local clientPermsKey = KEYS[1]
 local collectionKey = KEYS[2]
@@ -48,6 +47,19 @@ end
 
 local clientPerms = redis.call('SMEMBERS', clientPermsKey)
 --Do not catch client without permissions, there may be public items.
+
+--Filter clientPerms based on collection filter
+if #collectionFilter != 1 then
+    --Should not have 0 or more than 1 filter, throw error
+    return redis.error_reply('Invalid amount of collection filters found for '  .. collectionKey .. ' : ' .. #collectionFilter .. ' filters, must be 1.')
+end
+local filter = collectionFilter[1]
+local filteredClientPerms = {}
+for _, perm in ipairs(clientPerms) do
+    if string.match(perm, filter) then
+        table.insert(filteredClientPerms, perm)
+    end
+end
 
 local variantsSetKey = collPrefix .. collectionKey .. ':variants'
 local variants = redis.call('SMEMBERS', variantsSetKey)
@@ -77,7 +89,7 @@ for _, variant in ipairs(variantData) do
     local variantPerms = redis.call('SMEMBERS', variantPermsKey)
     
     -- Check if clientPerms is subset of variantPerms
-    local isSubset = isSubset(clientPerms, variantPermsKey)
+    local isSubset = isSubset(filteredClientPerms, variantPermsKey)
     if(isSubset) then
         goto continue
     end
