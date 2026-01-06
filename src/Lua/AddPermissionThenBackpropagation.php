@@ -18,28 +18,22 @@ class AddPermissionThenBackpropagation extends AbstractScript{
      * @param string[] $permissionTypes
      */
     public function run(string $itemKey, array $permissions, string $clientID): void{
-        //TODO modify script to add given permissions to client as well.
-        //TODO rewrite to use type as pattern to match the key
-        $permissionTypes = array_map([$this->permissionHandler, 'typeFromPermission'], $permissions);
-        $permCount = count($permissions);
-        if ($permCount === 0) {
+        $clientPermsKey = Utility::clientPermsKey($clientID);
+        if (count($permissions) === 0) {
                 return;
         }
 
         $args = [];
-        $args[] = $itemKey;
-        $args[] = (string)$permCount;
         foreach ($permissions as $perm) {
                 $args[] = (string)$perm;
         }
-        foreach ($permissionTypes as $type) {
-                $args[] = (string)$type;
-        }
-        $args[] = Utility::ITEM_PREFIX;
 
         $this->redis->evalsha(
                 $this->scriptSha,
-                0,
+                3,
+                Utility::ITEM_PREFIX,
+                $itemKey,
+                $clientPermsKey,
                 ...$args
         );
     }
@@ -47,25 +41,21 @@ class AddPermissionThenBackpropagation extends AbstractScript{
 
     public static function script(): string{
                 return <<<LUA
-local rootItemKey = ARGV[1]
-local permCount = tonumber(ARGV[2])
-local perms = {}
-local types = {}
+local itemPrefix = KEYS[1]
+local rootItemKey = KEYS[2]
+local clientPermsKey = KEYS[3]
+local perms = ARGV
 
 --[[
-Args: string rootItemKey, int permCount, string permissions[0...permCount], string types[0...permCount], string itemPrefix
+Args: string permissions[1...n]
 ]]--
-
-for i = 1, permCount do
-    perms[i] = ARGV[2 + i]
-    types[i] = ARGV[2 + permCount + i]
-end
-
-local itemPrefix = ARGV[2 + (permCount * 2) + 1]
 
 local function permsKey(itemKey)
     return itemPrefix .. itemKey .. ':perms'
 end
+
+--start by adding permissions to client perms
+redis.call('SADD', clientPermsKey, unpack(perms))
 
 local queue = {rootItemKey}
 local visited = {}
@@ -93,7 +83,7 @@ while #queue > 0 do
 
         local permsToPropagate = {}
 
-        for i = 1, permCount do
+        for i = 1, #perms do
             if string.match(perms[i], backpropagationType) then
                 table.insert(permsToPropagate, perms[i])
             end
