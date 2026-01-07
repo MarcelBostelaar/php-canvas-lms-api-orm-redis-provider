@@ -145,7 +145,7 @@ protected Client $redis;
         $values = $result->value;
         sort($values);
 
-        $this->assertSame(['A', 'B'], $values);
+        $this->assertSame(['A', 'B'], $values, 'Collection items returned do not match expected subset.');
     }
 
     public function testCollectionMissWhenClientHasExtraFilteredPermissions(): void
@@ -162,8 +162,8 @@ protected Client $redis;
 
         $result = $this->provider->getCollection('client-seeker', $collectionKey);
 
-        $this->assertFalse($result->hit);
-        $this->assertNull($result->value);
+        $this->assertFalse($result->hit, 'Collection lookup should have been a cache miss due to extra permissions.');
+        $this->assertNull($result->value, 'Collection value should be null on cache miss.');
     }
 
     public function testCollectionHitWhenClientFilteredPermissionsMatchExactly(): void
@@ -183,6 +183,6 @@ protected Client $redis;
         $values = $result->value;
         sort($values);
 
-        $this->assertSame(['A', 'B'], $values);
+        $this->assertSame(['A', 'B'], $values, 'Collection items returned do not match expected subset on exact permission match.');
     }
 }

@@ -10,7 +10,7 @@ class GetCollectionVariants extends AbstractScript{
      * @return array{0, null}|array{1, array<string>} 0 and null if no matching variant found, 1 and array of item values if found.
      */
     public function run(string $collectionKey, string $clientPermsKey): array{
-        $result = $this->redis->evalsha(
+        return $this->redis->evalsha(
             $this->scriptSha,
             2,
             $clientPermsKey,
@@ -18,12 +18,6 @@ class GetCollectionVariants extends AbstractScript{
             Utility::ITEM_PREFIX,
             Utility::COLLECTION_PREFIX
         );
-
-        if ($result[0] === 0) {
-            return [0, null];
-        }
-
-        return [1, array_values($result)];
     }
     protected static function script(): string{
                 return <<<LUA
@@ -32,13 +26,13 @@ local collectionKey = KEYS[2]
 local itemPrefix = ARGV[1]
 local collPrefix = ARGV[2]
 local collectionFilterKey = collPrefix .. collectionKey .. ':filter'
-local collectionFilter = redis.call('SMEMBERS', collectionFilterKey)
+local collectionFilter = redis.call('GET', collectionFilterKey)
 
-function isSubset(subset, supersetKey)
-    local areMembers = redis.call('SMEMBERS', supersetKey, subset)
+local function isSubset(subset, supersetKey)
+    local areMembers = redis.call('SMISMEMBER', supersetKey, unpack(subset))
     --check if all are integer 1
-    for i in areMembers do
-        if areMembers[i] == 0 then
+    for _, i in ipairs(areMembers) do
+        if i == 0 then
             return false
         end
     end
@@ -49,14 +43,9 @@ local clientPerms = redis.call('SMEMBERS', clientPermsKey)
 --Do not catch client without permissions, there may be public items.
 
 --Filter clientPerms based on collection filter
-if #collectionFilter ~= 1 then
-    --Should not have 0 or more than 1 filter, throw error
-    return redis.error_reply('Invalid amount of collection filters found for '  .. collectionKey .. ' : ' .. #collectionFilter .. ' filters, must be 1.')
-end
-local filter = collectionFilter[1]
 local filteredClientPerms = {}
 for _, perm in ipairs(clientPerms) do
-    if string.match(perm, filter) then
+    if string.match(perm, collectionFilter) then
         table.insert(filteredClientPerms, perm)
     end
 end
@@ -65,7 +54,7 @@ local variantsSetKey = collPrefix .. collectionKey .. ':variants'
 local variants = redis.call('SMEMBERS', variantsSetKey)
 
 if #variants == 0 then -- No variants exist, return 0 as result indicator
-    return 0, {}
+    return {0, {}}
 end
 
 -- Sort variants by permission count (largest first)
@@ -80,6 +69,7 @@ end
 
 table.sort(variantData, function(a, b) return a.count > b.count end)
 
+local results = {}
 -- Check each variant in order (largest first)
 for _, variant in ipairs(variantData) do
     local skipThisVariant = false
@@ -96,7 +86,8 @@ for _, variant in ipairs(variantData) do
     else
         -- clientPerms is subset of variantPerms, return items filtered to client perms
         local variantItems = redis.call('SMEMBERS', variantItemsKey)
-        local results = {}
+        --Empty results for this variant
+        results = {}
         
         for _, itemKey in ipairs(variantItems) do
             local itemPermsKey = itemPrefix .. itemKey .. ':perms'
@@ -116,11 +107,11 @@ for _, variant in ipairs(variantData) do
     end
 
     if not skipThisVariant then
-        return 1, results
+        return {1, results}
     end
 end
 
-return 0, {}
+return {0, {}}
 LUA;
         }
 }
