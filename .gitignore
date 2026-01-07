@@ -1,4 +1,0 @@
-*vendor*
-.env
-/vendor/
-.phpunit.result.cache
