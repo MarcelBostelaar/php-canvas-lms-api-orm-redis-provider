@@ -12,6 +12,10 @@ class Utility{
             return self::ITEM_PREFIX . $itemKey . ':value';
     }
 
+    public static function privateKey(string $itemKey, string $clientID): string{
+            return self::ITEM_PREFIX . $itemKey . ':private:' . $clientID;
+    }
+
     public static function permsKey(string $itemKey): string{
             return self::ITEM_PREFIX . $itemKey . ':perms';
     }
