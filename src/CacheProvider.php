@@ -72,6 +72,39 @@ class CacheProvider implements CacheProviderInterface{
     }
 
     /**
+     * Sets a value privately for only the given client
+     * @param string $itemKey
+     * @param mixed $value
+     * @param int $ttl
+     * @param string $clientID
+     * @return void
+     */
+    public function setPrivate(string $itemKey, mixed $value, int $ttl, string $clientID): void{
+        $serialized = serialize($value);
+        $privateKey = Utility::privateKey($itemKey, $clientID);
+
+        $this->redis->set($privateKey, $serialized);
+        if ($ttl > 0) {
+            $this->redis->expire($privateKey, $ttl);
+        }
+    }
+
+    /**
+     * Tries to retrieve a private value by key from the cache for the given client.
+     * @param string $itemKey
+     * @param string $clientID
+     * @return CacheResult
+     */
+    public function getPrivate(string $itemKey, string $clientID): CacheResult{
+        $privateKey = Utility::privateKey($itemKey, $clientID);
+        $value = $this->redis->get($privateKey);
+        if ($value === null) {
+            return new CacheResult(null, false);
+        }
+        return new CacheResult(unserialize($value), true);
+    }
+
+    /**
      * Gets an unprotected value by key.
      * @param string $key
      * @return CacheResult
@@ -100,6 +133,11 @@ class CacheProvider implements CacheProviderInterface{
     public function setUnprotected(string $key, mixed $value, int $ttl) : void{
         $serialized = serialize($value);
         $valueKey = Utility::valueKey($key);
+        $permsKey = Utility::permsKey($key);
+        if ($this->redis->exists($permsKey)) {
+            //cant overwrite protected item as unprotected
+            return;
+        }
 
         $this->redis->set($valueKey, $serialized);
         if ($ttl > 0) {
