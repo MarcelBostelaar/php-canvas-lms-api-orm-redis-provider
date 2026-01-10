@@ -20,7 +20,7 @@
         }
     ],
     "require": {
-        "canvasapilibrary/orm": "1.0.*",
+        "canvasapilibrary/orm": "1.1.*",
         "predis/predis": "^3.3"
     },
     "require-dev": {
